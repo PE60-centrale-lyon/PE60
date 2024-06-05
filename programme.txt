@@ -1,0 +1,552 @@
+# Required libraries
+import customtkinter
+import tkinter
+from PIL import Image
+import os
+
+import serial.tools.list_ports
+
+import sounddevice as sd
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.pyplot as plt
+import numpy as np
+
+customtkinter.set_appearance_mode("light")
+
+class HomePage(customtkinter.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master, fg_color="white")
+        self.master = master
+
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+
+
+        # Sidebar
+        self.sidebar_frame = customtkinter.CTkFrame(self, corner_radius=0)
+        self.sidebar_frame.grid(row=0, column=0, sticky="ns")
+
+        self.sidebar_frame.grid_rowconfigure(3, weight=1)
+
+
+        self.analyze_button = customtkinter.CTkButton(self.sidebar_frame, text="Analyser des données", command=self.analyze_event, width=250)
+        self.analyze_button.grid(row=0, column=0, padx=30, pady=(30, 15), sticky="ew")
+
+        self.launch_button = customtkinter.CTkButton(self.sidebar_frame, text="Lancer un nouveau test", command=self.launch_event)
+        self.launch_button.grid(row=1, column=0, padx=30, pady=(15, 15), sticky="ew")
+
+        self.about_button = customtkinter.CTkButton(self.sidebar_frame, text="À propos", command=self.about_event)
+        self.about_button.grid(row=2, column=0, padx=30, pady=(15, 0), sticky="ew")
+        
+        self.quit_button = customtkinter.CTkButton(self.sidebar_frame, text="Quitter", command=self.quit_event)
+        self.quit_button.grid(row=3, column=0, padx=30, pady=(0, 30), sticky="sew")
+
+
+
+        # Right side
+        self.rightside_frame = customtkinter.CTkFrame(self, corner_radius=0, fg_color="white")
+        self.rightside_frame.grid(row=0, column=1, sticky="ns")
+
+        self.rightside_frame.grid_columnconfigure(0, weight=1)
+        self.rightside_frame.grid_rowconfigure(2, weight=1)
+
+
+            # Label PE60
+        self.pe60_label = customtkinter.CTkLabel(self.rightside_frame, text="PE 60 : Banc de test pour micros de\n guitare électrique",
+                                                  font=customtkinter.CTkFont(size=30, weight="bold"))
+        self.pe60_label.grid(row=0, column=0, pady=(30, 15), sticky="new")
+
+
+            # Logo Centrale Lyon
+        current_path = os.path.dirname(os.path.realpath(__file__))
+        self.logo_image = customtkinter.CTkImage(Image.open(current_path + "\\files_pe60\logo.jpg"), size=(580,168))
+        self.logo_image_label = customtkinter.CTkLabel(self.rightside_frame, text="", image=self.logo_image)
+        self.logo_image_label.grid(row=2, column=0, sticky="sew")
+    
+    def analyze_event(self):
+        self.master.analyze_page.grid(row=0, column=0, sticky="nsew")
+        self.grid_forget()
+
+    def launch_event(self):
+        self.master.test_page.grid(row=0, column=0, sticky="nsew")
+        self.grid_forget()
+    
+    def about_event(self):
+        self.master.about_page.grid(row=0, column=0, sticky="nsew")
+        self.grid_forget()
+
+    def quit_event(self):
+        self.master.destroy()
+
+
+
+
+
+class TestPage(customtkinter.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master, fg_color="white")
+        self.master = master
+
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+
+
+        # Sidebar
+        self.sidebar_frame = customtkinter.CTkFrame(self, corner_radius=0)
+        self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
+
+
+            # Label Settings
+        self.settings_label = customtkinter.CTkLabel(self.sidebar_frame, text="Paramétrage du test",
+                                                  font=customtkinter.CTkFont(size=20, weight="bold"))
+        self.settings_label.grid(row=0, column=0, columnspan=2, pady=(15, 0), sticky="new")
+
+
+            # Bench port
+        self.ports = []
+        
+        self.port_label = customtkinter.CTkLabel(self.sidebar_frame, text="Port du banc d'essai :",
+                                                  font=customtkinter.CTkFont(size=15))
+        self.port_label.grid(row=1, column=0, columnspan=2, padx=15, pady=(15, 0), sticky="nw")
+
+        self.port_optionmenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=[""]+[port for port, desc, hwid in sorted(self.ports)], dynamic_resizing=False)
+        self.port_optionmenu.grid(row=2, column=0, columnspan=1, padx=(15,0), pady=(0, 0), sticky="new")
+
+        self.searchport_button = customtkinter.CTkButton(self.sidebar_frame, text="Rechercher", command=self.search_port)
+        self.searchport_button.grid(row=2, column=1, columnspan=1, padx=(0,15), pady=(0, 0), sticky="new")
+
+        self.search_port()
+
+            # Acquisition device
+        self.devices = []
+
+        self.acqusition_label = customtkinter.CTkLabel(self.sidebar_frame, text="Périphérique d'acquisition :",
+                                                  font=customtkinter.CTkFont(size=15))
+        self.acqusition_label.grid(row=3, column=0, columnspan=2, padx=15, pady=(15, 0), sticky="nw")
+
+        self.acqusition_optionmenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=[""]+[d for d in self.devices], dynamic_resizing=False)
+        self.acqusition_optionmenu.grid(row=4, column=0, columnspan=1, padx=(15,0), pady=(0, 0), sticky="new")
+
+        self.searchacqusition_button = customtkinter.CTkButton(self.sidebar_frame, text="Rechercher", command=self.search_device)
+        self.searchacqusition_button.grid(row=4, column=1, columnspan=1, padx=(0,15), pady=(0, 0), sticky="new")
+
+        self.search_device()
+
+            # Strings
+        self.port_label = customtkinter.CTkLabel(self.sidebar_frame, text="Corde(s) jouée(s) :",
+                                                  font=customtkinter.CTkFont(size=15))
+        self.port_label.grid(row=5, column=0, padx=(15,0), pady=(15, 0), sticky="nw")
+
+
+        self.check6_var = customtkinter.StringVar(value="off")
+        self.e6_checkbox = customtkinter.CTkCheckBox(self.sidebar_frame, text="E6",
+                                     variable=self.check6_var, onvalue="on", offvalue="off", command=self.check6)
+        self.e6_checkbox.grid(row=6, column=0, padx=(20,0), pady=(0, 1), sticky="nw")
+
+        self.check5_var = customtkinter.StringVar(value="off")
+        self.b5_checkbox = customtkinter.CTkCheckBox(self.sidebar_frame, text="B5",
+                                     variable=self.check5_var, onvalue="on", offvalue="off", command=self.check5)
+        self.b5_checkbox.grid(row=7, column=0, padx=(20,0), pady=(1, 1), sticky="nw")
+
+        self.check4_var = customtkinter.StringVar(value="off")
+        self.g4_checkbox = customtkinter.CTkCheckBox(self.sidebar_frame, text="G4",
+                                     variable=self.check4_var, onvalue="on", offvalue="off", command=self.check4)
+        self.g4_checkbox.grid(row=8, column=0, padx=(20,0), pady=(1, 1), sticky="nw")
+
+        self.check3_var = customtkinter.StringVar(value="off")
+        self.d3_checkbox = customtkinter.CTkCheckBox(self.sidebar_frame, text="D3",
+                                     variable=self.check3_var, onvalue="on", offvalue="off", command=self.check3)
+        self.d3_checkbox.grid(row=9, column=0, padx=(20,0), pady=(1, 1), sticky="nw")
+
+        self.check2_var = customtkinter.StringVar(value="off")
+        self.a2_checkbox = customtkinter.CTkCheckBox(self.sidebar_frame, text="A2",
+                                     variable=self.check2_var, onvalue="on", offvalue="off", command=self.check2)
+        self.a2_checkbox.grid(row=10, column=0, padx=(20,0), pady=(1, 1), sticky="nw")
+
+        self.check1_var = customtkinter.StringVar(value="off")
+        self.e1_checkbox = customtkinter.CTkCheckBox(self.sidebar_frame, text="E1",
+                                     variable=self.check1_var, onvalue="on", offvalue="off", command=self.check1)
+        self.e1_checkbox.grid(row=11, column=0, padx=(20,0), pady=(1, 0), sticky="nw")
+
+        self.checkbox_list =  [self.e6_checkbox, self.b5_checkbox, self.g4_checkbox, self.d3_checkbox, self.a2_checkbox, self.e1_checkbox]
+        
+
+            # Fret
+        self.fret_label = customtkinter.CTkLabel(self.sidebar_frame, text="Frette :",
+                                                  font=customtkinter.CTkFont(size=15))
+        self.fret_label.grid(row=5, column=1, padx=(20,0), pady=(17, 0), sticky="nw")
+
+        self.radio_choice = 0
+
+        self.radio_var = tkinter.IntVar(value=0)
+        self.fret0_radiobutton = customtkinter.CTkRadioButton(master=self.sidebar_frame, variable=self.radio_var, value=0, text="0", command=self.radio_command0)
+        self.fret0_radiobutton.grid(row=6, column=1, pady=(0,1), padx=0, sticky="n")
+        self.fret1_radiobutton = customtkinter.CTkRadioButton(master=self.sidebar_frame, variable=self.radio_var, value=4, text="4", command=self.radio_command4)
+        self.fret1_radiobutton.grid(row=7, column=1, pady=(0,1), padx=0, sticky="n")
+        self.fret2_radiobutton = customtkinter.CTkRadioButton(master=self.sidebar_frame, variable=self.radio_var, value=8, text="8", command=self.radio_command8)
+        self.fret2_radiobutton.grid(row=8, column=1, pady=(1,1), padx=0, sticky="n")
+        self.fret3_radiobutton = customtkinter.CTkRadioButton(master=self.sidebar_frame, variable=self.radio_var, value=12, text="12", command=self.radio_command12)
+        self.fret3_radiobutton.grid(row=9, column=1, pady=(1,1), padx=0, sticky="n")
+
+
+            # Duration
+        self.duration_label = customtkinter.CTkLabel(self.sidebar_frame, text="Durée d'acquisition :",
+                                                  font=customtkinter.CTkFont(size=15))
+        self.duration_label.grid(row=11, column=0, columnspan=2, padx=(15,15), pady=(30, 0), sticky="nw")
+
+        self.duration_entry = customtkinter.CTkEntry(self.sidebar_frame, placeholder_text="Durée d'acquisition")
+        self.duration_entry.grid(row=12, column=0, columnspan=2, padx=(15, 0), pady=(0, 0), sticky="nw")
+
+        self.second_label = customtkinter.CTkLabel(self.sidebar_frame, text="s",
+                                                  font=customtkinter.CTkFont(size=15))
+        self.second_label.grid(row=12, column=0, columnspan=2, padx=(157,15), pady=(0, 0), sticky="nw")
+
+
+            # Sampling frequency
+        self.frequency_label = customtkinter.CTkLabel(self.sidebar_frame, text="Fréquence d'échantillonnage :",
+                                                  font=customtkinter.CTkFont(size=15))
+        self.frequency_label.grid(row=13, column=0, columnspan=2, padx=(15,15), pady=(15, 0), sticky="nw")
+
+        self.frequency_entry = customtkinter.CTkEntry(self.sidebar_frame, placeholder_text="Fréquence d'échantillonnage :")
+        self.frequency_entry.grid(row=14, column=0, columnspan=2, padx=(15, 0), pady=(0, 0), sticky="nw")
+
+        self.frequency_optionmenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=["Hz", "kHz"], width=5)
+        self.frequency_optionmenu.grid(row=14, column=0, columnspan=2, padx=(157,15), pady=(0, 0), sticky="new")
+
+            # Launch test
+        self.sidebar_frame.grid_rowconfigure(15, weight=1)
+        self.launch_label = customtkinter.CTkButton(self.sidebar_frame, text="Démarrer le test", command=self.launch_test)
+        self.launch_label.grid(row=15, column=0, columnspan=2, padx=(15,15), pady=(20, 15), sticky="sew")
+
+            # Back
+        self.sidebar_frame.grid_rowconfigure(16, weight=0)
+        self.back_button = customtkinter.CTkButton(self.sidebar_frame, text="Retour", command=self.back)
+        self.back_button.grid(row=16, column=0, columnspan=2, padx=(15,15), pady=(0, 30), sticky="sew")
+
+
+
+
+        # Right side
+        self.rightside_frame = customtkinter.CTkFrame(self, corner_radius=0, fg_color="white")
+        self.rightside_frame.grid(row=0, column=1, sticky="ns")
+
+        self.rightside_frame.grid_rowconfigure(2, weight=1)
+
+
+            # Label PE60
+        self.pe60_label = customtkinter.CTkLabel(self.rightside_frame, text="PE 60 : Banc de test pour micros de\n guitare électrique",
+                                                  font=customtkinter.CTkFont(size=30, weight="bold"))
+        self.pe60_label.grid(row=0, column=0, pady=(30, 15), sticky="new")
+
+
+            # Information diagram
+        current_path = os.path.dirname(os.path.realpath(__file__))
+        self.diagram_image = customtkinter.CTkImage(Image.open(current_path + "\\files_pe60\diagramme.jpg"), size=(583,217))
+        self.diagram_image_label = customtkinter.CTkLabel(self.rightside_frame, text="", image=self.diagram_image)
+        self.diagram_image_label.grid(row=1, column=0, pady=(50,0), sticky="nsew")
+
+
+            # Logo Centrale Lyon
+        current_path = os.path.dirname(os.path.realpath(__file__))
+        self.logo_image = customtkinter.CTkImage(Image.open(current_path + "\\files_pe60\logo.jpg"), size=(580,168))
+        self.logo_image_label = customtkinter.CTkLabel(self.rightside_frame, text="", image=self.logo_image)
+        self.logo_image_label.grid(row=2, column=0, sticky="sew")
+    
+
+
+    def search_port(self):
+        self.ports = serial.tools.list_ports.comports()
+        self.port_optionmenu.configure(values=[""]+[port for port, desc, hwid in sorted(self.ports)])
+    
+    def search_device(self):
+        self.devices = sd.query_devices()
+        temp=[]
+        for d in self.devices:
+            if d["max_input_channels"]>0:
+                temp.append(d)
+        self.devices = temp
+        self.acqusition_optionmenu.configure(values=[""]+[str(d["index"])+" : "+d["name"] for d in self.devices])
+    
+    def launch_test(self):
+        settings = []
+
+        strings = []
+        for k in range(6):
+            print(k,self.checkbox_list[k].get())
+            if self.checkbox_list[k].get()=="on":
+                strings.append(6-k)
+        settings.append(strings)
+
+        settings.append(self.duration_entry.get())
+
+        scale=1
+        if self.frequency_optionmenu.get() == "kHz":
+            scale=1000
+        settings.append(float(self.frequency_entry.get())*scale)
+
+        port = self.port_optionmenu.get()
+        settings.append(port)
+        
+        acquisition_device = self.acqusition_optionmenu.get()
+        k=0
+        while acquisition_device[k+1]!=" ":
+            k+=1
+        acquisition_index = int(acquisition_device[0:(k+1)])
+        settings.append(acquisition_index)
+
+        settings.append(self.radio_choice)
+
+        print(settings)
+
+    
+    def check6(self):
+        self.checkglobal(0)
+    
+    def check5(self):
+        self.checkglobal(1)
+    
+    def check4(self):
+        self.checkglobal(2)
+    
+    def check3(self):
+        self.checkglobal(3)
+    
+    def check2(self):
+        self.checkglobal(4)
+    
+    def check1(self):
+        self.checkglobal(5)
+    
+    def checkglobal(self, index):
+        for k in range(6):
+            if abs(index-k)>=2:
+                self.checkbox_list[k].deselect()
+    
+    def radio_command0(self):
+        self.radio_command(0)
+    
+    def radio_command4(self):
+        self.radio_command(4)
+    
+    def radio_command8(self):
+        self.radio_command(8)
+    
+    def radio_command12(self):
+        self.radio_command(12)
+    
+    def radio_command(self, value):
+        self.radio_choice = value
+    
+    def back(self):
+        self.master.home_page.grid(row=0, column=0, sticky="nsew")
+
+        self.grid_forget()
+    
+
+
+class AnalyzePage(customtkinter.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master, fg_color="white")
+        self.master = master
+
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+
+        self.n_item = 0
+        self.items_list = []
+
+
+        # Sidebar
+        self.sidebar_frame = customtkinter.CTkFrame(self, corner_radius=0)
+        self.sidebar_frame.grid(row=0, column=0, sticky="ns")
+
+        self.sidebar_frame.grid_rowconfigure(3, weight=1)
+
+            # Label
+        self.analyze_label = customtkinter.CTkLabel(self.sidebar_frame, text="Analyse des données",
+                                                  font=customtkinter.CTkFont(size=20, weight="bold"))
+        self.analyze_label.grid(row=0, column=0, columnspan=2, pady=(30, 0), sticky="new")
+
+
+            # Add data
+        self.add_button = customtkinter.CTkButton(self.sidebar_frame, text="Nouvelle fenêtre d'analyse", command=self.add_data, width=250)
+        self.add_button.grid(row=1, column=0, padx=30, pady=(15, 0), sticky="new")
+        
+            # Back Button
+        self.back_button = customtkinter.CTkButton(self.sidebar_frame, text="Retour", command=self.back, width=250)
+        self.back_button.grid(row=3, column=0, padx=30, pady=(0, 30), sticky="sew")
+
+
+        # Right side
+        self.rightside_frame = customtkinter.CTkScrollableFrame(self, corner_radius=0, fg_color="white")
+        self.rightside_frame.grid(row=0, column=1, sticky="nsew")
+
+        self.rightside_frame.grid_columnconfigure(0, weight=1)
+
+
+    
+    def add_data(self):
+        self.newdata_frame = DataFrame(self.rightside_frame)
+        self.items_list.append(self.newdata_frame)
+        
+        self.newdata_frame.grid(row=self.n_item, column=0, sticky="nsew", padx=30, pady=30)
+        self.n_item = self.n_item + 1
+
+    def back(self):
+        self.master.home_page.grid(row=0, column=0, sticky="nsew")
+
+        self.grid_forget()
+
+
+
+class DataFrame(customtkinter.CTkFrame):
+        def __init__(self, master):
+            super().__init__(master)
+            self.master = master
+            self.data=[]
+            self.freq_max = 1300
+
+            self.grid_columnconfigure(0, weight=1)
+            self.grid_rowconfigure((0,1,2,3), weight=1)
+
+        
+            self.delete_button = customtkinter.CTkButton(self, text="Supprimer", command=self.delete_event)
+            self.delete_button.grid(row=0, column=1, sticky="new", padx=(0,15), pady=15)
+
+            self.savepicture_button = customtkinter.CTkButton(self, text="Sauvegarder l'image", command=self.save_picture)
+            self.savepicture_button.grid(row=1, column=1, sticky="new", padx=(0,15), pady=15)
+
+            self.add_data_button = customtkinter.CTkButton(self, text="Ajouter des données", command=self.add_data)
+            self.add_data_button.grid(row=2, column=1, sticky="new", padx=(0,15), pady=(14,45))
+
+            self.address_entry = customtkinter.CTkEntry(self, placeholder_text="Adresse du jeu de données")
+            self.address_entry.grid(row=2, column=1, sticky="new", padx=(0, 15), pady=(43,15))
+
+            self.maxfreq_button = customtkinter.CTkButton(self, text="Actualiser", command=self.maxfreq_command)
+            self.maxfreq_button.grid(row=3, column=1, sticky="new", padx=(0,15), pady=(13,45))
+
+            self.maxfreq_entry = customtkinter.CTkEntry(self, placeholder_text="Fréquence max (Hz)")
+            self.maxfreq_entry.grid(row=3, column=1, sticky="new", padx=(0, 15), pady=(42,15))
+
+            self.fig = None
+            self.ax = None
+        
+        def add_data(self):
+            dataadress = self.address_entry.get()
+            safeaddress = os.path.normpath(dataadress)
+            rawdata = np.load(safeaddress)
+
+            self.data.append(rawdata)
+            self.fig, self.ax = plt.subplots()
+
+            for data_set in self.data:
+                sampling_freq = data_set[0]
+                temp_data = data_set[1:]
+                
+                fft_data = np.fft.rfft(temp_data)
+                fft_abs = np.abs(fft_data)
+                frequencies = np.fft.rfftfreq(len(temp_data), d=1/sampling_freq)
+            
+                self.ax.plot(frequencies, fft_abs)
+
+            self.ax.set_title("Spectre(s)")
+            self.ax.set_xlabel("Fréquence (Hz)")
+            self.ax.set_ylabel("Amplitude")
+            self.ax.grid(True)
+
+            self.ax.set_xlim(0, self.freq_max)
+
+            canvas = FigureCanvasTkAgg(self.fig, master=self)
+            canvas.draw()
+            canvas.get_tk_widget().grid(column=0, row=0, rowspan=4, padx=15, pady=15, sticky="nsew")
+
+
+        def delete_event(self):
+             self.grid_forget()
+        
+        def maxfreq_command(self):
+            ...
+        
+        def save_picture(self):
+            ...
+        
+
+
+
+
+class App(customtkinter.CTk):
+    width = 900
+    height = 600
+
+    def __init__(self):
+        super().__init__()
+
+        self.title("Centrale Lyon | PE 60 : Banc de test pour micros de guitare électrique")
+        current_path = os.path.dirname(os.path.realpath(__file__))
+        self.iconbitmap(current_path + "\\files_pe60\icone.ico")
+
+        self.geometry(f"{self.width}x{self.height}")
+        self.resizable(True, True)
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+
+        # Home page
+        self.home_page = HomePage(self)
+        self.test_page = TestPage(self)
+        self.analyze_page = AnalyzePage(self)
+        self.about_page = AboutPage(self)
+
+        self.home_page.grid(row=0, column=0, sticky="nsew")
+        
+
+class AboutPage(customtkinter.CTkFrame):
+        def __init__(self, master):
+            super().__init__(master, fg_color="white")
+            self.master = master
+
+            self.grid_rowconfigure(0, weight=1)
+            self.grid_columnconfigure(1, weight=1)
+
+            self.n_item = 0
+            self.items_list = []
+
+
+            # Sidebar
+            self.sidebar_frame = customtkinter.CTkFrame(self, corner_radius=0)
+            self.sidebar_frame.grid(row=0, column=0, sticky="ns")
+
+            self.sidebar_frame.grid_rowconfigure(3, weight=1)
+
+                # Label
+            self.analyze_label = customtkinter.CTkLabel(self.sidebar_frame, text="À propos de ce logiciel",
+                                                  font=customtkinter.CTkFont(size=20, weight="bold"))
+            self.analyze_label.grid(row=0, column=0, columnspan=2, pady=(30, 0), sticky="new")
+
+                # Back Button
+            self.back_button = customtkinter.CTkButton(self.sidebar_frame, text="Retour", command=self.back, width=250)
+            self.back_button.grid(row=3, column=0, padx=30, pady=(0, 30), sticky="sew")
+
+
+
+            # Right side
+            self.rightside_frame = customtkinter.CTkFrame(self, corner_radius=0, fg_color="white")
+            self.rightside_frame.grid(row=0, column=1, sticky="nsew")
+
+            self.rightside_frame.grid_columnconfigure(0, weight=1)
+            self.rightside_frame.grid_rowconfigure(0, weight=1)
+
+            self.textbox = customtkinter.CTkTextbox(master=self.rightside_frame, corner_radius=0, activate_scrollbars=False)
+            self.textbox.grid(row=0, column=0, padx=30, pady=30, sticky="nsew")
+            self.textbox.insert("0.0", "     Ce logiciel constitue l'interface Homme/Machine du banc de test pour micros de guitare électrique, objet du projet d'étude 60 de l'année 2023/2024 à l'école Centrale de Lyon. Les pages de téléchargement et d'actualités se trouvent sur le projet github suivant : https://github.com/PE60-centrale-lyon/PE60\n")
+        
+        def back(self):
+            self.master.home_page.grid(row=0, column=0, sticky="nsew")
+
+            self.grid_forget()
+            
+
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
